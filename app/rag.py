@@ -640,7 +640,7 @@ def _fix_list_formatting(text: str) -> str:
     """
     Fix list formatting by ensuring each bullet point or numbered item is on its own line.
     This handles cases where the LLM generates bullets on the same line.
-    Uses multiple strategies to ensure proper formatting.
+    Uses multiple aggressive strategies to ensure proper formatting.
     """
     original_text = text
 
@@ -654,13 +654,30 @@ def _fix_list_formatting(text: str) -> str:
     # Strategy 3: Fix numbered lists - look for patterns like "text 1. " where not at line start
     text = re.sub(r'(?<!\n) (\d+\.) ', r'\n\1 ', text)
 
-    # Strategy 4: Catch edge case where bullet is directly after text without much space
+    # Strategy 4: Catch numbered lists without leading space: "text1. " or "text 1."
+    text = re.sub(r'([a-zA-Z0-9.,!?;:)])\s*(\d+\.\s+)', r'\1\n\2', text)
+
+    # Strategy 5: Catch edge case where bullet is directly after text without much space
     # Match: letter/number followed by space(s) and bullet
     text = re.sub(r'([a-zA-Z0-9]) +([•●○◦]) ', r'\1\n\2 ', text)
+
+    # Strategy 6: Fix cases where punctuation is followed by a bullet on same line
+    text = re.sub(r'([.,!?:;])\s+([•●○◦])\s+', r'\1\n\2 ', text)
+
+    # Strategy 7: Aggressive - any bullet/number that's not at line start gets moved to new line
+    # This catches patterns like "text• item" or "text • item"
+    text = re.sub(r'([^\n])([•●○◦])\s+', r'\1\n\2 ', text)
+
+    # Strategy 8: Fix comma-separated lists that were converted to bullets
+    # Pattern: "• item1 • item2" should become "• item1\n• item2"
+    text = re.sub(r'([•●○◦][^\n•●○◦]{3,}?)\s+([•●○◦])\s+', r'\1\n\2 ', text)
 
     # Clean up: Remove excessive spaces after bullets
     text = re.sub(r'^([•●○◦])  +', r'\1 ', text, flags=re.MULTILINE)
     text = re.sub(r'^(\d+\.)  +', r'\1 ', text, flags=re.MULTILINE)
+
+    # Clean up: Ensure no multiple consecutive newlines before list items
+    text = re.sub(r'\n{3,}([•●○◦\d])', r'\n\n\1', text)
 
     # Debug logging
     if text != original_text:
@@ -669,6 +686,10 @@ def _fix_list_formatting(text: str) -> str:
         newlines_before = original_text.count('\n')
         newlines_after = text.count('\n')
         print(f"DEBUG: Newlines before: {newlines_before}, after: {newlines_after}")
+
+        # Show sample of changes for debugging
+        if newlines_after > newlines_before:
+            print(f"DEBUG: Added {newlines_after - newlines_before} newlines to improve list formatting")
 
     return text
 
@@ -741,66 +762,90 @@ def synthesize_answer(question: str, contexts: List[str]) -> str:
     # Enhanced system prompt with strict list formatting instructions
     system_prompt = """You are a helpful AI assistant in a chatbot interface. Provide clear, accurate answers.
 
-CRITICAL: LIST FORMATTING RULES
-BEFORE generating your answer, analyze whether the question expects a list response:
-- Questions containing: "list", "what are", "which", "give me", "show me", "tell me about all", "enumerate", "name"
-- Questions asking for multiple items, options, features, benefits, steps, or categories
-- Questions from website content that contain structured data (navigation menus, product lists, feature lists, pricing tiers, etc.)
+⚠️ CRITICAL: MANDATORY LIST FORMATTING REQUIREMENTS ⚠️
 
-IF THE ANSWER SHOULD BE A LIST (MANDATORY):
-1. ALWAYS format your response as a proper list - NO exceptions
-2. Use bullet points (•) or numbered format (1., 2., 3.)
-3. Put EACH item on a NEW LINE
-4. DO NOT write items in a paragraph format separated by commas or "and"
-5. Even if the context has the data in paragraph form, YOU MUST restructure it as a list
-6. Each list item should be clear and concise
+STEP 1: DETECT IF A LIST IS NEEDED
+Analyze the question to determine if it expects multiple items as an answer:
+- Questions with words: "list", "what are", "which", "give me", "show me", "tell me about", "enumerate", "name", "types of", "kinds of", "examples of"
+- Questions asking for: features, benefits, steps, options, items, categories, methods, ways, reasons, factors
+- ANY question where the answer naturally contains 2 or more distinct items/points
 
-CORRECT LIST FORMAT (each item MUST be on its own line with a line break):
-Introduction text:
-• First item
-• Second item
-• Third item
+STEP 2: IF LIST DETECTED → USE PROPER FORMATTING (NON-NEGOTIABLE)
+You MUST format as a list with proper line breaks:
 
-OR
+✅ CORRECT FORMAT (each item on separate line with line break):
+Here are the main features:
+• First feature explanation
+• Second feature explanation
+• Third feature explanation
 
-Introduction text:
-1. First item
-2. Second item
-3. Third item
+OR for numbered lists:
+The process involves these steps:
+1. First step details
+2. Second step details
+3. Third step details
 
-CRITICAL: Each bullet point or numbered item MUST start on a NEW LINE. Press ENTER/RETURN after each item.
+⛔ WRONG FORMAT (NEVER DO THIS):
+❌ "The features include feature one, feature two, and feature three."
+❌ "The items are: • item one • item two • item three"
+❌ "There are three options: 1. option one 2. option two 3. option three"
 
-WRONG (DO NOT DO THIS):
-"The items are: item one, item two, and item three."
-"The options include item one, item two, and item three."
-"The items are: • item one • item two • item three" (NO - each must be on separate line!)
+STEP 3: FORMAT REQUIREMENTS FOR LISTS
+1. Each bullet point (•) or number (1., 2., 3.) MUST start on a NEW LINE
+2. Press ENTER/RETURN after each list item
+3. Use • for bullet points OR 1., 2., 3. for numbered items
+4. Never put multiple list items on the same line
+5. Never use comma-separated lists when proper list format is needed
+6. If context has data in paragraph form, YOU MUST convert it to proper list format
 
-GENERAL FORMATTING RULES:
+STEP 4: GENERAL FORMATTING RULES
 1. Use natural, conversational language suitable for chat
-2. Never use markdown symbols like **, __, ~~, or ` unless absolutely necessary
+2. Do NOT use markdown symbols (**, __, ~~, `) - they will be stripped
 3. Avoid unnecessary special characters, emojis, or decorative symbols
 4. Keep responses clean and easy to read in a chat window
 5. Use proper sentence structure with correct punctuation
 
-RESPONSE STYLE:
-- Be direct and precise
-- Avoid verbose introductions like "Based on the context provided..."
-- For factual questions, give factual answers directly
-- For list questions, ALWAYS give list answers in proper list format
-- If the context contains list data (especially from website scrapes), preserve that structure
-- Answer based on the context provided
-- If information is clearly missing from the context, politely say you don't have that information
+RESPONSE STYLE REQUIREMENTS:
+✅ Be direct and precise
+✅ Start with the answer immediately - NO verbose introductions
+✅ NO phrases like: "Based on the context provided...", "According to the information...", "From what I can see..."
+✅ For list questions → Give list answers with proper line breaks
+✅ For factual questions → Give factual answers directly
+✅ If information is missing → Politely say you don't have that information
+✅ Answer ONLY based on the context provided
 
-SPECIAL NOTE FOR WEBSITE CONTENT:
-Website data often contains lists (menus, features, products, services, etc.) that may appear as continuous text in the context. YOU MUST recognize these patterns and format them as proper lists when answering.
+SPECIAL NOTE - WEBSITE CONTENT:
+Website data often contains lists (menus, features, products, services, pricing) that appear as continuous text in context.
+YOU MUST recognize these patterns and format them as proper lists with line breaks when answering.
 
-Remember: You are chatting with a user, not writing a formal document. When a list is expected, ALWAYS provide a properly formatted list."""
+EXAMPLES:
+
+Question: "What are the pricing tiers?"
+❌ WRONG: "The pricing tiers are Basic at $10/month, Pro at $25/month, and Enterprise at $100/month."
+✅ CORRECT:
+The pricing tiers are:
+• Basic: $10/month
+• Pro: $25/month
+• Enterprise: $100/month
+
+Question: "List the main features"
+❌ WRONG: "The main features include real-time analytics, automated reports, and custom dashboards."
+✅ CORRECT:
+The main features are:
+• Real-time analytics
+• Automated reports
+• Custom dashboards
+
+MANDATORY: When a question expects multiple items as an answer, format them as a proper list with each item on a new line. This is non-negotiable."""
 
     user_prompt = (
         f"Question: {question}\n\n"
         "Context:\n" + "\n\n---\n".join(contexts[:12]) + "\n\n"
-        "IMPORTANT: Analyze if this question expects a list answer. If yes, format your response as a proper bulleted or numbered list with each item on a new line.\n\n"
-        "Provide a clear, helpful answer based on the information in the context above."
+        "⚠️ CRITICAL INSTRUCTION: Before answering, ask yourself: 'Does this question expect multiple items/points as an answer?' "
+        "If YES → Format your response as a proper list with each item on a NEW LINE using bullets (•) or numbers (1., 2., 3.). "
+        "If NO → Provide a clear, direct answer.\n\n"
+        "REMEMBER: Each list item MUST be on its own line with a line break. Never use comma-separated format for lists.\n\n"
+        "Now provide your answer:"
     )
 
     chat = oai.chat.completions.create(

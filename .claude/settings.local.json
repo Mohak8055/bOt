@@ -9,7 +9,9 @@
       "Bash(dir:*)",
       "Bash(\"C:\\Users\\Mohak\\AppData\\Local\\Programs\\Python\\Python312\\python.exe\" -c \"import sys; sys.path.insert(0, ''W:/bOt''); from app.routers import documents, websites; print(''Imports successful'')\")",
       "Bash(\"C:\\Users\\Mohak\\AppData\\Local\\Programs\\Python\\Python312\\python.exe\" -m py_compile W:/bOt/app/rag.py W:/bOt/app/scraper.py)",
-      "Bash(python -m py_compile:*)"
+      "Bash(python -m py_compile:*)",
+      "Bash(python:*)",
+      "Bash(del test_formatting.py)"
     ],
     "deny": [],
     "ask": []
