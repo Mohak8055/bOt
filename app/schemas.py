@@ -216,6 +216,18 @@ class BatchUploadResponse(BaseModel):
     accepted: int  # Number of files accepted for processing
     errors: List[dict]  # List of {"filename": str, "error": str}
 
+class DocumentRetryRequest(BaseModel):
+    """Request schema for retrying failed document uploads."""
+    document_ids: List[int] = Field(..., min_items=1, description="List of document IDs to retry")
+
+class DocumentRetryResponse(BaseModel):
+    """Response schema for retry operation."""
+    retried: List[dict]  # List of {"document_id": int, "filename": str, "status": str}
+    skipped: List[dict]  # List of {"document_id": int, "reason": str}
+    total: int
+    retried_count: int
+    skipped_count: int
+
 class QueryRequest(BaseModel):
     question: str
     top_k: int = 15

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models import Document # We get the User model from 'models'
 from .. import models          # <--- 1. Import 'models'
-from ..schemas import UploadResponse, BatchUploadResponse, DocumentOut, PaginatedResponse
+from ..schemas import UploadResponse, BatchUploadResponse, DocumentOut, DocumentRetryRequest, DocumentRetryResponse, PaginatedResponse
 from typing import List, Optional
 from ..rag import document_to_pinecone, delete_document_vectors
 from ..auth import get_current_user  # <--- 2. Import your new auth function
@@ -179,6 +179,105 @@ def upload_documents(
         accepted=accepted,
         errors=errors
     )
+
+
+@router.post("/retry", response_model=DocumentRetryResponse)
+def retry_failed_documents(
+    payload: DocumentRetryRequest,
+    background_tasks: BackgroundTasks = None,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Retry processing for failed document uploads.
+    Only processes documents with status="error" that belong to the current user's tenant.
+    Admins can retry any document in their tenant, regular users can only retry their own documents.
+    """
+    retried = []
+    skipped = []
+
+    for doc_id in payload.document_ids:
+        try:
+            # Get the document
+            doc = db.query(Document).filter(Document.id == doc_id).first()
+
+            if not doc:
+                skipped.append({
+                    "document_id": doc_id,
+                    "reason": "Document not found"
+                })
+                continue
+
+            # Check tenant isolation
+            if doc.company_id != current_user.company_id:
+                skipped.append({
+                    "document_id": doc_id,
+                    "reason": "Access denied: Document belongs to a different tenant"
+                })
+                continue
+
+            # Check authorization: owner or admin can retry
+            if doc.uploader_id != current_user.id and current_user.role not in ["admin", "superadmin"]:
+                skipped.append({
+                    "document_id": doc_id,
+                    "reason": "Access denied: You can only retry your own documents unless you are an admin"
+                })
+                continue
+
+            # Only retry documents with error status
+            if doc.status != "error":
+                skipped.append({
+                    "document_id": doc_id,
+                    "reason": f"Document status is '{doc.status}', can only retry documents with 'error' status"
+                })
+                continue
+
+            # Check if file exists
+            file_path = get_document_path(doc.filename)
+            if not os.path.exists(file_path):
+                skipped.append({
+                    "document_id": doc_id,
+                    "reason": "Document file not found on server"
+                })
+                continue
+
+            # Reset status to pending
+            doc.status = "pending"
+            doc.error_message = None
+            doc.num_chunks = 0
+            db.commit()
+
+            # Schedule background reprocessing
+            if background_tasks:
+                background_tasks.add_task(
+                    process_document_background,
+                    doc.id,
+                    file_path,
+                    doc.tenant_code,
+                    doc.user_code,
+                    doc.filename
+                )
+
+            retried.append({
+                "document_id": doc.id,
+                "filename": doc.original_name,
+                "status": "pending"
+            })
+
+        except Exception as e:
+            skipped.append({
+                "document_id": doc_id,
+                "reason": f"Error: {str(e)}"
+            })
+
+    return DocumentRetryResponse(
+        retried=retried,
+        skipped=skipped,
+        total=len(payload.document_ids),
+        retried_count=len(retried),
+        skipped_count=len(skipped)
+    )
+
 
 @router.get("", response_model=PaginatedResponse[DocumentOut])
 def list_documents(
