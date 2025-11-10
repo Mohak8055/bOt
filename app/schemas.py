@@ -50,6 +50,15 @@ class CompanyOut(BaseModel):
     class Config:
         from_attributes = True
 
+class CompanySimple(BaseModel):
+    """Simple company schema with only essential fields for dropdowns/lists."""
+    id: int
+    name: str
+    tenant_code: str
+
+    class Config:
+        from_attributes = True
+
 class UserBase(BaseModel):
     display_name: str
     user_code: str

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from ..db import get_db, Base, engine
 from ..models import Company, User
-from ..schemas import CompanyCreate, CompanyUpdate, CompanyOut, UserCreate, UserOut, SuperadminCreate, AdminUserUpdate, PaginatedResponse
+from ..schemas import CompanyCreate, CompanyUpdate, CompanyOut, CompanySimple, UserCreate, UserOut, SuperadminCreate, AdminUserUpdate, PaginatedResponse
 from ..security import require_superadmin, SUPERADMIN_SYSTEM_TENANT
 from ..auth import hash_password
 from ..dependencies import get_pagination_params, PaginationParams
@@ -83,6 +83,18 @@ def list_companies(
         size=pagination.size,
         pages=pages
     )
+
+
+@router.get("/all", response_model=list[CompanySimple], dependencies=[Depends(require_superadmin)])
+def list_all_companies_simple(
+    db: Session = Depends(get_db)
+):
+    """
+    List all companies without pagination, returning only id, name, and tenant_code.
+    Useful for dropdowns and simple lists. Superadmin only.
+    """
+    companies = db.query(Company).order_by(Company.created_at.desc()).all()
+    return companies
 
 
 @router.get("/admins", response_model=PaginatedResponse[UserOut], dependencies=[Depends(require_superadmin)])

@@ -105,7 +105,7 @@ def widget_query(
 
     if not matches:
         return QueryAnswer(
-            answer="I don't have enough information to answer that question. The available content may not be relevant to your query.",
+            answer="Apologies! I don't have enough information to answer this question. The available content may not be relevant to your query.",
             sources=[]
         )
 
@@ -153,7 +153,7 @@ def superadmin_company_query(
 
     if not matches:
         return QueryAnswer(
-            answer="I don't have enough information to answer that question. The available content may not be relevant to your query.",
+            answer="Apologies! I don't have enough information to answer this question. The available content may not be relevant to your query.",
             sources=[]
         )
 
